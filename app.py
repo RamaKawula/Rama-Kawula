@@ -156,7 +156,7 @@ with st.sidebar:
         label_visibility="collapsed",
     )
     st.markdown("---")
-    st.caption("© 2025 Rama Kawula Coffee")
+    st.caption("© Rama Kawula Coffee")
 
 page = menu.strip()
 
