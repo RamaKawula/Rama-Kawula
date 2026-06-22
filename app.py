@@ -48,9 +48,17 @@ st.markdown("""
 def get_supabase() -> Client:
     url = st.secrets["SUPABASE_URL"]
     key = st.secrets["SUPABASE_KEY"]
+
+    # Jika pakai key format baru (sb_publishable_...), fallback ke legacy anon key
+    # Pastikan di Streamlit Secrets kamu pakai Legacy anon key bukan publishable key
     return create_client(url, key)
 
-supabase = get_supabase()
+try:
+    supabase = get_supabase()
+except Exception as e:
+    st.error(f"❌ Gagal koneksi ke Supabase: {e}")
+    st.info("Pastikan SUPABASE_URL dan SUPABASE_KEY sudah benar di Streamlit Secrets.")
+    st.stop()
 
 # ─────────────────────────────────────────────
 #  HELPERS
@@ -64,49 +72,70 @@ def fmt_rp(amount: float) -> str:
         return "Rp 0"
 
 def load_transactions() -> pd.DataFrame:
-    res = supabase.table("transactions") \
-        .select("*") \
-        .order("tanggal", desc=True) \
-        .order("id", desc=True) \
-        .execute()
-    if res.data:
-        df = pd.DataFrame(res.data)
-        df["tanggal"] = pd.to_datetime(df["tanggal"])
-        return df
-    return pd.DataFrame(columns=["id","tanggal","tipe","kategori","nominal","keterangan"])
+    try:
+        res = (
+            supabase.table("transactions")
+            .select("*")
+            .order("tanggal", desc=True)
+            .order("id", desc=True)
+            .execute()
+        )
+        if res.data:
+            df = pd.DataFrame(res.data)
+            df["tanggal"] = pd.to_datetime(df["tanggal"])
+            return df
+        return pd.DataFrame(columns=["id","tanggal","tipe","kategori","nominal","keterangan"])
+    except Exception as e:
+        st.error(f"❌ Gagal memuat transaksi: {e}")
+        return pd.DataFrame(columns=["id","tanggal","tipe","kategori","nominal","keterangan"])
 
 def load_inventory() -> pd.DataFrame:
-    res = supabase.table("inventory").select("item_name, quantity").execute()
-    if res.data:
-        df = pd.DataFrame(res.data)
-        df.columns = ["Bahan", "Stok"]
-        order = ["Kopi", "Susu", "Gelas", "Botol", "Stiker"]
-        df["Bahan"] = pd.Categorical(df["Bahan"], categories=order, ordered=True)
-        return df.sort_values("Bahan").reset_index(drop=True)
-    return pd.DataFrame(columns=["Bahan", "Stok"])
+    try:
+        res = supabase.table("inventory").select("item_name, quantity").execute()
+        if res.data:
+            df = pd.DataFrame(res.data)
+            df.columns = ["Bahan", "Stok"]
+            order = ["Kopi", "Susu", "Gelas", "Botol", "Stiker"]
+            df["Bahan"] = pd.Categorical(df["Bahan"], categories=order, ordered=True)
+            return df.sort_values("Bahan").reset_index(drop=True)
+        return pd.DataFrame(columns=["Bahan", "Stok"])
+    except Exception as e:
+        st.error(f"❌ Gagal memuat inventori: {e}")
+        return pd.DataFrame(columns=["Bahan", "Stok"])
 
 def insert_transaction(tanggal, tipe, kategori, nominal, keterangan):
-    supabase.table("transactions").insert({
-        "tanggal":    str(tanggal),
-        "tipe":       tipe,
-        "kategori":   kategori,
-        "nominal":    float(nominal),
-        "keterangan": keterangan,
-    }).execute()
+    try:
+        supabase.table("transactions").insert({
+            "tanggal":    str(tanggal),
+            "tipe":       tipe,
+            "kategori":   kategori,
+            "nominal":    float(nominal),
+            "keterangan": keterangan,
+        }).execute()
+    except Exception as e:
+        st.error(f"❌ Gagal menyimpan transaksi: {e}")
 
 def get_stok(item_name: str) -> int:
-    res = supabase.table("inventory") \
-        .select("quantity") \
-        .eq("item_name", item_name) \
-        .single() \
-        .execute()
-    return res.data["quantity"] if res.data else 0
+    try:
+        res = (
+            supabase.table("inventory")
+            .select("quantity")
+            .eq("item_name", item_name)
+            .single()
+            .execute()
+        )
+        return res.data["quantity"] if res.data else 0
+    except Exception:
+        return 0
 
 def set_stok(item_name: str, quantity: int):
-    supabase.table("inventory") \
-        .update({"quantity": quantity}) \
-        .eq("item_name", item_name) \
-        .execute()
+    try:
+        supabase.table("inventory") \
+            .update({"quantity": quantity}) \
+            .eq("item_name", item_name) \
+            .execute()
+    except Exception as e:
+        st.error(f"❌ Gagal update stok {item_name}: {e}")
 
 def add_stok(item_name: str, delta: int):
     set_stok(item_name, get_stok(item_name) + delta)
