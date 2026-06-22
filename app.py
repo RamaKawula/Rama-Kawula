@@ -15,164 +15,56 @@ st.set_page_config(
 )
 
 # ─────────────────────────────────────────────
-#  CUSTOM CSS – Coffee & Earth Tones
+#  CUSTOM CSS – Minimal, theme-adaptive
+#  Prinsip: JANGAN override warna teks/bg
+#  bawaan Streamlit. Hanya tambahkan aksen
+#  tipis yang terlihat di light & dark mode.
 # ─────────────────────────────────────────────
 st.markdown("""
 <style>
-/* ── Google Fonts ── */
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600&display=swap');
-
-/* ── Root palette ── */
+/* ── Accent warna netral yang terlihat di light & dark ── */
 :root {
-    --espresso:   #2C1A0E;
-    --roast:      #5C3317;
-    --caramel:    #A0522D;
-    --latte:      #C8956C;
-    --cream:      #F5ECD7;
-    --parchment:  #FAF4E8;
-    --foam:       #FDFAF3;
-    --moss:       #4A6741;
-    --rust:       #B84A2F;
-    --gold:       #C9973A;
+    --accent:      #7B5E3A;   /* coklat medium, kontras cukup di kedua mode */
+    --accent-soft: #A0784F;
+    --border-soft: rgba(127, 94, 58, 0.25);
 }
 
-/* ── Global background ── */
-html, body, [data-testid="stAppViewContainer"] {
-    background-color: var(--parchment) !important;
-    font-family: 'Inter', sans-serif;
-    color: var(--espresso);
-}
-
-/* ── Sidebar ── */
-[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, var(--espresso) 0%, var(--roast) 100%) !important;
-    border-right: 3px solid var(--caramel);
-}
-[data-testid="stSidebar"] * {
-    color: var(--cream) !important;
-}
-[data-testid="stSidebar"] .stRadio label {
-    font-size: 0.95rem;
-    padding: 6px 0;
-    cursor: pointer;
-    transition: color 0.2s;
-}
-[data-testid="stSidebar"] .stRadio label:hover {
-    color: var(--latte) !important;
-}
-[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2,
-[data-testid="stSidebar"] h3 {
-    color: var(--latte) !important;
-    font-family: 'Playfair Display', serif;
-}
-
-/* ── Main headings ── */
-h1, h2, h3 {
-    font-family: 'Playfair Display', serif;
-    color: var(--espresso) !important;
-}
-
-/* ── Metric cards ── */
+/* ── Metric cards: hanya border kiri sebagai aksen, sisanya ikut tema ── */
 [data-testid="stMetric"] {
-    background: var(--foam);
-    border: 1px solid var(--latte);
-    border-left: 5px solid var(--caramel);
-    border-radius: 10px;
-    padding: 18px 20px !important;
-    box-shadow: 0 2px 8px rgba(44,26,14,0.08);
-}
-[data-testid="stMetricLabel"] {
-    font-size: 0.8rem !important;
-    font-weight: 600;
-    color: var(--roast) !important;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-[data-testid="stMetricValue"] {
-    color: var(--espresso) !important;
-    font-family: 'Playfair Display', serif;
-    font-size: 1.5rem !important;
+    border-left: 4px solid var(--accent);
+    border-radius: 8px;
+    padding: 14px 18px !important;
 }
 
-/* ── Tabs ── */
-.stTabs [data-baseweb="tab-list"] {
-    background: var(--cream);
-    border-radius: 8px 8px 0 0;
-    border-bottom: 2px solid var(--caramel);
-    gap: 4px;
-    padding: 4px 6px 0;
-}
-.stTabs [data-baseweb="tab"] {
-    color: var(--roast) !important;
-    font-weight: 600;
-    border-radius: 6px 6px 0 0;
-    padding: 8px 18px;
-    transition: background 0.2s;
-}
-.stTabs [aria-selected="true"] {
-    background: var(--caramel) !important;
-    color: var(--foam) !important;
-}
-
-/* ── Forms / containers ── */
+/* ── Form container: border tipis saja ── */
 [data-testid="stForm"] {
-    background: var(--foam);
-    border: 1px solid var(--latte);
-    border-radius: 10px;
-    padding: 20px 24px;
-    box-shadow: 0 2px 6px rgba(44,26,14,0.06);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    padding: 18px 20px;
 }
 
-/* ── Buttons ── */
-.stButton > button, .stDownloadButton > button, .stFormSubmitButton > button {
-    background: linear-gradient(135deg, var(--caramel), var(--roast)) !important;
-    color: var(--foam) !important;
-    border: none !important;
-    border-radius: 8px !important;
-    font-weight: 600;
-    padding: 10px 24px;
-    letter-spacing: 0.03em;
-    transition: opacity 0.2s, transform 0.1s;
-}
-.stButton > button:hover, .stDownloadButton > button:hover, .stFormSubmitButton > button:hover {
-    opacity: 0.88;
-    transform: translateY(-1px);
-}
-
-/* ── Selectbox / inputs ── */
-[data-baseweb="select"] > div, [data-baseweb="input"] > div {
-    background: var(--parchment) !important;
-    border-color: var(--latte) !important;
-}
-
-/* ── Dataframe ── */
+/* ── Dataframe: border tipis ── */
 [data-testid="stDataFrame"] {
-    border: 1px solid var(--latte);
+    border: 1px solid var(--border-soft);
     border-radius: 8px;
     overflow: hidden;
 }
 
-/* ── Success / info alerts ── */
-[data-testid="stAlert"] {
-    border-radius: 8px !important;
-}
-
-/* ── Divider ── */
-hr {
-    border-color: var(--latte);
-    opacity: 0.4;
-    margin: 16px 0;
-}
-
-/* ── Section headers ── */
+/* ── Section header: garis bawah aksen, warna teks ikut tema ── */
 .section-header {
-    font-family: 'Playfair Display', serif;
-    font-size: 1.1rem;
-    color: var(--roast);
-    border-bottom: 2px solid var(--caramel);
-    padding-bottom: 6px;
-    margin-bottom: 14px;
+    font-size: 1.05rem;
     font-weight: 700;
+    border-bottom: 2px solid var(--accent);
+    padding-bottom: 5px;
+    margin-bottom: 12px;
+    opacity: 0.9;
+}
+
+/* ── Sidebar logo area ── */
+.sidebar-brand {
+    text-align: center;
+    padding: 8px 0 12px;
+    opacity: 0.95;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -253,13 +145,8 @@ init_db()
 #  SIDEBAR
 # ─────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("""
-        <div style='text-align:center; padding: 10px 0 4px;'>
-            <span style='font-size:2.4rem;'>☕</span>
-            <h2 style='margin:4px 0 0; font-size:1.25rem;'>Rama Kawula Coffee</h2>
-            <p style='font-size:0.78rem; opacity:0.7; margin:2px 0 14px;'>Panel Admin</p>
-        </div>
-    """, unsafe_allow_html=True)
+    st.markdown("### ☕ Rama Kawula Coffee")
+    st.caption("Panel Admin")
     st.markdown("---")
     menu = st.radio(
         "Navigasi",
@@ -267,10 +154,7 @@ with st.sidebar:
         label_visibility="collapsed",
     )
     st.markdown("---")
-    st.markdown(
-        f"<p style='font-size:0.72rem; opacity:0.55; text-align:center;'>© 2025 Rama Kawula Coffee</p>",
-        unsafe_allow_html=True,
-    )
+    st.caption("© 2025 Rama Kawula Coffee")
 
 page = menu.split(" ", 1)[1].strip()
 
@@ -307,8 +191,7 @@ if page == "Dashboard":
     st.markdown("---")
 
     # ── Chart ───────────────────────────────
-    st.markdown("<div class='section-header'>Grafik Pemasukan vs Pengeluaran (7 Hari Terakhir)</div>",
-                unsafe_allow_html=True)
+    st.subheader("Grafik Pemasukan vs Pengeluaran (7 Hari Terakhir)")
 
     if df.empty:
         st.info("Belum ada data transaksi. Silakan tambahkan transaksi terlebih dahulu.")
@@ -342,7 +225,7 @@ if page == "Dashboard":
     st.markdown("---")
 
     # ── Inventory ───────────────────────────
-    st.markdown("<div class='section-header'>Status Stok Bahan Baku</div>", unsafe_allow_html=True)
+    st.subheader("Status Stok Bahan Baku")
     inv_df = load_inventory()
     st.dataframe(inv_df, use_container_width=True, hide_index=True)
 
@@ -441,8 +324,7 @@ elif page == "Manajemen Stok":
     inv_df = load_inventory()
 
     # ── Section 1: Stok Awal ──────────────
-    st.markdown("<div class='section-header'>⚙️ Atur Stok Awal (Override Manual)</div>",
-                unsafe_allow_html=True)
+    st.subheader("⚙️ Atur Stok Awal (Override Manual)")
     st.caption("Gunakan bagian ini untuk menyetel jumlah stok secara langsung.")
 
     with st.form("form_stok_awal", clear_on_submit=False):
@@ -471,7 +353,7 @@ elif page == "Manajemen Stok":
     st.markdown("---")
 
     # ── Section 2: Update Stok Harian ─────
-    st.markdown("<div class='section-header'>🔄 Update Stok Harian</div>", unsafe_allow_html=True)
+    st.subheader("🔄 Update Stok Harian")
 
     semua_item = ["Kopi", "Susu", "Gelas", "Botol", "Stiker"]
     pilih_item = st.selectbox("Pilih Item", semua_item, key="pilih_item_harian")
@@ -552,7 +434,7 @@ elif page == "Manajemen Stok":
 
     # ── Tabel stok terkini ─────────────────
     st.markdown("---")
-    st.markdown("<div class='section-header'>📋 Stok Saat Ini</div>", unsafe_allow_html=True)
+    st.subheader("📋 Stok Saat Ini")
     inv_now = load_inventory()
     st.dataframe(inv_now, use_container_width=True, hide_index=True)
 
@@ -572,7 +454,7 @@ elif page == "Laporan Keuangan":
     df["tanggal"] = pd.to_datetime(df["tanggal"]).dt.date
 
     # ── Filter Tanggal ────────────────────
-    st.markdown("<div class='section-header'>🔎 Filter Periode</div>", unsafe_allow_html=True)
+    st.subheader("🔎 Filter Periode")
     col_a, col_b = st.columns(2)
     with col_a:
         start_date = st.date_input(
@@ -609,10 +491,9 @@ elif page == "Laporan Keuangan":
     st.markdown("---")
 
     # ── Tabel Transaksi ───────────────────
-    st.markdown(
-        f"<div class='section-header'>📄 Detail Transaksi "
-        f"({start_date.strftime('%d %b %Y')} – {end_date.strftime('%d %b %Y')})</div>",
-        unsafe_allow_html=True,
+    st.subheader(
+        f"📄 Detail Transaksi "
+        f"({start_date.strftime('%d %b %Y')} – {end_date.strftime('%d %b %Y')})"
     )
 
     if df_filtered.empty:
@@ -626,7 +507,7 @@ elif page == "Laporan Keuangan":
 
     # ── Export CSV ────────────────────────
     st.markdown("---")
-    st.markdown("<div class='section-header'>⬇️ Ekspor Data</div>", unsafe_allow_html=True)
+    st.subheader("⬇️ Ekspor Data")
 
     export_df = df_filtered.drop(columns=["id"]).copy() if not df_filtered.empty else df.drop(columns=["id"]).head(0)
     export_df["tanggal"] = export_df["tanggal"].astype(str)
