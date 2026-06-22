@@ -9,13 +9,13 @@ from supabase import create_client, Client
 # ─────────────────────────────────────────────
 st.set_page_config(
     page_title="Rama Kawula Coffee – Admin",
-    page_icon="☕",
+    page_icon="",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 # ─────────────────────────────────────────────
-#  CUSTOM CSS – Minimal, theme-adaptive
+#  CUSTOM CSS
 # ─────────────────────────────────────────────
 st.markdown("""
 <style>
@@ -48,15 +48,12 @@ st.markdown("""
 def get_supabase() -> Client:
     url = st.secrets["SUPABASE_URL"]
     key = st.secrets["SUPABASE_KEY"]
-
-    # Jika pakai key format baru (sb_publishable_...), fallback ke legacy anon key
-    # Pastikan di Streamlit Secrets kamu pakai Legacy anon key bukan publishable key
     return create_client(url, key)
 
 try:
     supabase = get_supabase()
 except Exception as e:
-    st.error(f"❌ Gagal koneksi ke Supabase: {e}")
+    st.error(f"Gagal koneksi ke Supabase: {e}")
     st.info("Pastikan SUPABASE_URL dan SUPABASE_KEY sudah benar di Streamlit Secrets.")
     st.stop()
 
@@ -86,7 +83,7 @@ def load_transactions() -> pd.DataFrame:
             return df
         return pd.DataFrame(columns=["id","tanggal","tipe","kategori","nominal","keterangan"])
     except Exception as e:
-        st.error(f"❌ Gagal memuat transaksi: {e}")
+        st.error(f"Gagal memuat transaksi: {e}")
         return pd.DataFrame(columns=["id","tanggal","tipe","kategori","nominal","keterangan"])
 
 def load_inventory() -> pd.DataFrame:
@@ -95,12 +92,15 @@ def load_inventory() -> pd.DataFrame:
         if res.data:
             df = pd.DataFrame(res.data)
             df.columns = ["Bahan", "Stok"]
-            order = ["Kopi", "Susu", "Gelas", "Botol", "Stiker"]
-            df["Bahan"] = pd.Categorical(df["Bahan"], categories=order, ordered=True)
+            order = ["Beans Kopi", "Susu", "Gelas", "Botol", "Stiker"]
+            existing = [o for o in order if o in df["Bahan"].values]
+            others   = df[~df["Bahan"].isin(order)]["Bahan"].tolist()
+            full_order = existing + others
+            df["Bahan"] = pd.Categorical(df["Bahan"], categories=full_order, ordered=True)
             return df.sort_values("Bahan").reset_index(drop=True)
         return pd.DataFrame(columns=["Bahan", "Stok"])
     except Exception as e:
-        st.error(f"❌ Gagal memuat inventori: {e}")
+        st.error(f"Gagal memuat inventori: {e}")
         return pd.DataFrame(columns=["Bahan", "Stok"])
 
 def insert_transaction(tanggal, tipe, kategori, nominal, keterangan):
@@ -113,7 +113,7 @@ def insert_transaction(tanggal, tipe, kategori, nominal, keterangan):
             "keterangan": keterangan,
         }).execute()
     except Exception as e:
-        st.error(f"❌ Gagal menyimpan transaksi: {e}")
+        st.error(f"Gagal menyimpan transaksi: {e}")
 
 def get_stok(item_name: str) -> int:
     try:
@@ -135,7 +135,7 @@ def set_stok(item_name: str, quantity: int):
             .eq("item_name", item_name) \
             .execute()
     except Exception as e:
-        st.error(f"❌ Gagal update stok {item_name}: {e}")
+        st.error(f"Gagal update stok {item_name}: {e}")
 
 def add_stok(item_name: str, delta: int):
     set_stok(item_name, get_stok(item_name) + delta)
@@ -147,28 +147,29 @@ def deduct_stok(item_name: str, delta: int):
 #  SIDEBAR
 # ─────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("### ☕ Rama Kawula Coffee")
+    st.markdown("### Rama Kawula Coffee")
     st.caption("Panel Admin")
     st.markdown("---")
     menu = st.radio(
         "Navigasi",
-        ["📊 Dashboard", "💳 Input Transaksi", "📦 Manajemen Stok", "📋 Laporan Keuangan"],
+        ["Dashboard", "Input Transaksi", "Manajemen Stok", "Laporan Keuangan"],
         label_visibility="collapsed",
     )
     st.markdown("---")
     st.caption("© 2025 Rama Kawula Coffee")
 
-page = menu.split(" ", 1)[1].strip()
+page = menu.strip()
 
 # ═══════════════════════════════════════════════════════════
 #  1. DASHBOARD
 # ═══════════════════════════════════════════════════════════
 if page == "Dashboard":
-    st.title("📊 Dashboard")
+    st.title("Dashboard")
     st.caption("Ringkasan keuangan dan stok hari ini.")
 
     df = load_transactions()
 
+    # Cash = SALDO_AWAL + PENJUALAN_CASH (QRIS tidak masuk total pemasukan kas)
     total_masuk_cash = df[
         (df["tipe"] == "MASUK") &
         (df["kategori"].isin(["SALDO_AWAL", "PENJUALAN_CASH"]))
@@ -179,10 +180,10 @@ if page == "Dashboard":
     laba_cash    = total_masuk_cash - total_keluar
 
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("💰 Keuntungan Cash", fmt_rp(laba_cash))
-    col2.metric("📱 Total QRIS", fmt_rp(total_qris))
-    col3.metric("🧾 Total Pengeluaran", fmt_rp(total_keluar))
-    col4.metric("☕ Total Omset", fmt_rp(total_masuk_cash + total_qris))
+    col1.metric("Saldo Kas Bersih", fmt_rp(laba_cash))
+    col2.metric("Total QRIS", fmt_rp(total_qris))
+    col3.metric("Total Pengeluaran", fmt_rp(total_keluar))
+    col4.metric("Total Omset", fmt_rp(total_masuk_cash + total_qris))
 
     st.markdown("---")
     st.subheader("Grafik Pemasukan vs Pengeluaran (7 Hari Terakhir)")
@@ -195,7 +196,7 @@ if page == "Dashboard":
         if df_week.empty:
             st.info("Tidak ada transaksi dalam 7 hari terakhir.")
         else:
-            df_week["tgl_str"]  = df_week["tanggal"].dt.strftime("%d/%m")
+            df_week["tgl_str"]   = df_week["tanggal"].dt.strftime("%d/%m")
             masuk_daily  = df_week[df_week["tipe"] == "MASUK"].groupby("tgl_str")["nominal"].sum().rename("Pemasukan")
             keluar_daily = df_week[df_week["tipe"] == "KELUAR"].groupby("tgl_str")["nominal"].sum().rename("Pengeluaran")
             chart_df     = pd.concat([masuk_daily, keluar_daily], axis=1).fillna(0)
@@ -211,127 +212,222 @@ if page == "Dashboard":
 #  2. INPUT TRANSAKSI
 # ═══════════════════════════════════════════════════════════
 elif page == "Input Transaksi":
-    st.title("💳 Input Transaksi")
+    st.title("Input Transaksi")
 
-    tab1, tab2, tab3 = st.tabs(["🏦 Saldo Awal", "☕ Penjualan Kopi", "🛒 Pembelian Bahan Baku"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Saldo Awal", "Penjualan Cash", "Penjualan QRIS", "Pembelian Bahan Baku"])
 
+    # ── Saldo Awal ──────────────────────────────
     with tab1:
         st.markdown("**Catat saldo awal kas.**")
         with st.form("form_saldo_awal", clear_on_submit=True):
             tanggal    = st.date_input("Tanggal", value=date.today())
             nominal    = st.number_input("Jumlah Uang (Rp)", min_value=0, step=1000, format="%d")
             keterangan = st.text_input("Keterangan", placeholder="mis. Saldo awal senin pagi")
-            submitted  = st.form_submit_button("💾 Simpan Saldo Awal")
+            submitted  = st.form_submit_button("Simpan Saldo Awal")
         if submitted:
             if nominal <= 0:
                 st.error("Jumlah uang harus lebih dari 0.")
             else:
                 insert_transaction(tanggal, "MASUK", "SALDO_AWAL", nominal, keterangan)
-                st.success(f"✅ Saldo awal {fmt_rp(nominal)} berhasil disimpan!")
+                st.success(f"Saldo awal {fmt_rp(nominal)} berhasil disimpan.")
 
+    # ── Penjualan Cash ───────────────────────────
     with tab2:
-        st.markdown("**Catat penjualan kopi harian.**")
-        with st.form("form_penjualan", clear_on_submit=True):
-            tanggal    = st.date_input("Tanggal", value=date.today(), key="tgl_jual")
-            jumlah_cup = st.number_input("Jumlah Beli (Cup)", min_value=0, step=1, format="%d")
+        st.markdown("**Catat penjualan kopi — pembayaran tunai.**")
+        st.caption("Penjualan cash akan masuk ke total pemasukan dan saldo kas.")
+        with st.form("form_penjualan_cash", clear_on_submit=True):
+            tanggal    = st.date_input("Tanggal", value=date.today(), key="tgl_jual_cash")
+            jumlah_cup = st.number_input("Jumlah Cup", min_value=0, step=1, format="%d")
             nominal    = st.number_input("Total Uang (Rp)", min_value=0, step=1000, format="%d")
-            pembayaran = st.selectbox("Metode Pembayaran", ["Cash", "QRIS"])
             keterangan = st.text_input("Keterangan", placeholder="mis. Penjualan sore")
-            submitted  = st.form_submit_button("💾 Simpan Penjualan")
+            submitted  = st.form_submit_button("Simpan Penjualan Cash")
         if submitted:
             if nominal <= 0:
                 st.error("Total uang harus lebih dari 0.")
             else:
-                kategori = "PENJUALAN_CASH" if pembayaran == "Cash" else "PENJUALAN_QRIS"
-                insert_transaction(tanggal, "MASUK", kategori, nominal, f"{jumlah_cup} cup | {keterangan}".strip(" |"))
-                st.success(f"✅ Penjualan {jumlah_cup} cup ({pembayaran}) senilai {fmt_rp(nominal)} tersimpan!")
+                insert_transaction(tanggal, "MASUK", "PENJUALAN_CASH", nominal,
+                                   f"{jumlah_cup} cup | {keterangan}".strip(" |"))
+                st.success(f"Penjualan cash {jumlah_cup} cup senilai {fmt_rp(nominal)} tersimpan.")
 
+    # ── Penjualan QRIS ───────────────────────────
     with tab3:
+        st.markdown("**Catat penjualan kopi — pembayaran QRIS.**")
+        st.caption("Penjualan QRIS dicatat terpisah dan tidak masuk ke saldo kas tunai.")
+        with st.form("form_penjualan_qris", clear_on_submit=True):
+            tanggal    = st.date_input("Tanggal", value=date.today(), key="tgl_jual_qris")
+            jumlah_cup = st.number_input("Jumlah Cup", min_value=0, step=1, format="%d")
+            nominal    = st.number_input("Total Uang (Rp)", min_value=0, step=1000, format="%d")
+            keterangan = st.text_input("Keterangan", placeholder="mis. Penjualan pagi")
+            submitted  = st.form_submit_button("Simpan Penjualan QRIS")
+        if submitted:
+            if nominal <= 0:
+                st.error("Total uang harus lebih dari 0.")
+            else:
+                insert_transaction(tanggal, "MASUK", "PENJUALAN_QRIS", nominal,
+                                   f"{jumlah_cup} cup | {keterangan}".strip(" |"))
+                st.success(f"Penjualan QRIS {jumlah_cup} cup senilai {fmt_rp(nominal)} tersimpan.")
+
+    # ── Pembelian Bahan Baku ─────────────────────
+    with tab4:
         st.markdown("**Catat pembelian bahan baku.**")
         with st.form("form_bahan_baku", clear_on_submit=True):
             tanggal    = st.date_input("Tanggal", value=date.today(), key="tgl_bahan")
-            kategori   = st.selectbox("Kategori Bahan", ["Botol", "Gelas", "Stiker", "Susu", "Kopi", "Lainnya"])
+            kategori   = st.selectbox("Kategori Bahan", ["Botol", "Gelas", "Stiker", "Susu", "Beans Kopi", "Lainnya"])
             nama_lain  = st.text_input("Nama Bahan (jika Lainnya)", placeholder="mis. Tisu, Sendok")
             jumlah     = st.number_input("Jumlah", min_value=0, step=1, format="%d")
             nominal    = st.number_input("Total Harga (Rp)", min_value=0, step=500, format="%d")
             keterangan = st.text_input("Keterangan", placeholder="mis. Beli di toko X")
-            submitted  = st.form_submit_button("💾 Simpan Pembelian")
+            submitted  = st.form_submit_button("Simpan Pembelian")
         if submitted:
             if nominal <= 0:
                 st.error("Total harga harus lebih dari 0.")
             else:
                 cat_final = nama_lain.strip() if (kategori == "Lainnya" and nama_lain.strip()) else kategori
-                insert_transaction(tanggal, "KELUAR", "PEMBELIAN_BAHAN", nominal, f"{cat_final} {jumlah} pcs | {keterangan}".strip(" |"))
-                st.success(f"✅ Pembelian {cat_final} senilai {fmt_rp(nominal)} tersimpan!")
+                insert_transaction(tanggal, "KELUAR", "PEMBELIAN_BAHAN", nominal,
+                                   f"{cat_final} {jumlah} pcs | {keterangan}".strip(" |"))
+                st.success(f"Pembelian {cat_final} senilai {fmt_rp(nominal)} tersimpan.")
 
 
 # ═══════════════════════════════════════════════════════════
 #  3. MANAJEMEN STOK
 # ═══════════════════════════════════════════════════════════
 elif page == "Manajemen Stok":
-    st.title("📦 Manajemen Stok")
+    st.title("Manajemen Stok")
 
     inv_df = load_inventory()
 
-    st.subheader("⚙️ Atur Stok Awal (Override Manual)")
-    st.caption("Gunakan bagian ini untuk menyetel jumlah stok secara langsung.")
+    # ── Stok Awal ────────────────────────────────
+    st.subheader("Atur Stok Awal (Override Manual)")
+    st.caption("Setel jumlah stok secara langsung tanpa mengurangi atau menambah.")
+
+    ITEMS_STOK = ["Beans Kopi", "Susu", "Gelas", "Botol", "Stiker"]
 
     with st.form("form_stok_awal", clear_on_submit=False):
         stok_inputs = {}
-        items = ["Kopi", "Susu", "Gelas", "Botol", "Stiker"]
-        cols  = st.columns(len(items))
-        for i, item in enumerate(items):
+        cols = st.columns(len(ITEMS_STOK))
+        for i, item in enumerate(ITEMS_STOK):
             row = inv_df[inv_df["Bahan"] == item]
             cur = int(row["Stok"].values[0]) if not row.empty else 0
             with cols[i]:
-                stok_inputs[item] = st.number_input(item, min_value=0, value=cur, step=1, format="%d", key=f"stok_awal_{item}")
-        submitted_awal = st.form_submit_button("💾 Simpan Stok Awal")
+                stok_inputs[item] = st.number_input(item, min_value=0, value=cur, step=1,
+                                                     format="%d", key=f"stok_awal_{item}")
+        submitted_awal = st.form_submit_button("Simpan Stok Awal")
 
     if submitted_awal:
         for item, qty in stok_inputs.items():
             set_stok(item, qty)
-        st.success("✅ Stok awal berhasil diperbarui!")
+        st.success("Stok awal berhasil diperbarui.")
         st.rerun()
 
     st.markdown("---")
-    st.subheader("🔄 Update Stok Harian")
 
-    pilih_item = st.selectbox("Pilih Item", ["Kopi", "Susu", "Gelas", "Botol", "Stiker"], key="pilih_item_harian")
+    # ── Produksi Harian ──────────────────────────
+    st.subheader("Produksi Harian")
 
-    if pilih_item == "Kopi":
-        st.info("☕ **Mode Produksi Kopi** — stok bahan akan dikurangi sesuai pemakaian.")
-        with st.form("form_produksi", clear_on_submit=True):
-            tanggal     = st.date_input("Tanggal Produksi", value=date.today(), key="tgl_prod")
-            jumlah_buat = st.number_input("Jumlah Buat (Cup)", min_value=0, step=1, format="%d")
-            susu_pakai  = st.number_input("Susu Terpakai (ml / unit)", min_value=0, step=1, format="%d")
-            kopi_pakai  = st.number_input("Kopi Terpakai (gr / unit)", min_value=0, step=1, format="%d")
-            gelas_pakai = st.number_input("Gelas Terpakai (pcs)", min_value=0, step=1, format="%d")
-            keterangan  = st.text_input("Keterangan", placeholder="mis. Produksi sore hari")
-            submitted_prod = st.form_submit_button("💾 Simpan Produksi")
+    tab_botol, tab_beans, tab_restock = st.tabs(["Produksi Kopi Botol", "Produksi Kopi Beans", "Restock Bahan"])
 
-        if submitted_prod:
-            updates = [("Susu", susu_pakai), ("Kopi", kopi_pakai), ("Gelas", gelas_pakai)]
-            errors  = []
+    with tab_botol:
+        st.markdown("**Produksi kopi botol** — mengurangi stok: Beans Kopi, Susu, Botol, Stiker, Gelas.")
+        with st.form("form_produksi_botol", clear_on_submit=True):
+            tanggal        = st.date_input("Tanggal Produksi", value=date.today(), key="tgl_prod_botol")
+            jumlah_botol   = st.number_input("Jumlah Botol Diproduksi (pcs)", min_value=0, step=1, format="%d")
+
+            st.markdown("**Pemakaian per batch produksi:**")
+            c1, c2, c3, c4, c5 = st.columns(5)
+            with c1:
+                beans_pakai = st.number_input("Beans Kopi (gr)", min_value=0, step=1, format="%d", key="bb_beans")
+            with c2:
+                susu_pakai  = st.number_input("Susu (ml)", min_value=0, step=1, format="%d", key="bb_susu")
+            with c3:
+                botol_pakai = st.number_input("Botol (pcs)", min_value=0, step=1, format="%d", key="bb_botol")
+            with c4:
+                stiker_pakai = st.number_input("Stiker (pcs)", min_value=0, step=1, format="%d", key="bb_stiker")
+            with c5:
+                gelas_pakai = st.number_input("Gelas (pcs)", min_value=0, step=1, format="%d", key="bb_gelas")
+
+            keterangan     = st.text_input("Keterangan", placeholder="mis. Produksi pagi", key="ket_botol")
+            submitted_botol = st.form_submit_button("Simpan Produksi Botol")
+
+        if submitted_botol:
+            updates = [
+                ("Beans Kopi", beans_pakai),
+                ("Susu",       susu_pakai),
+                ("Botol",      botol_pakai),
+                ("Stiker",     stiker_pakai),
+                ("Gelas",      gelas_pakai),
+            ]
+            errors = []
             for item_name, kurang in updates:
-                stok_skrg = get_stok(item_name)
-                if stok_skrg < kurang:
-                    errors.append(f"Stok **{item_name}** tidak cukup (tersisa {stok_skrg}, dibutuhkan {kurang}).")
+                if kurang > 0:
+                    stok_skrg = get_stok(item_name)
+                    if stok_skrg < kurang:
+                        errors.append(f"Stok **{item_name}** tidak cukup (tersisa {stok_skrg}, dibutuhkan {kurang}).")
             if errors:
                 for e in errors:
                     st.error(e)
             else:
                 for item_name, kurang in updates:
-                    deduct_stok(item_name, kurang)
-                st.success(f"✅ Produksi {jumlah_buat} cup dicatat. Susu -{susu_pakai}, Kopi -{kopi_pakai}, Gelas -{gelas_pakai}.")
+                    if kurang > 0:
+                        deduct_stok(item_name, kurang)
+                detail = f"Botol:{botol_pakai} Stiker:{stiker_pakai} Susu:{susu_pakai} Beans:{beans_pakai} Gelas:{gelas_pakai}"
+                insert_transaction(tanggal, "KELUAR", "PRODUKSI_BOTOL", 0,
+                                   f"Produksi {jumlah_botol} botol | {detail} | {keterangan}".strip(" |"))
+                st.success(f"Produksi {jumlah_botol} botol berhasil dicatat. Stok bahan telah dikurangi.")
                 st.rerun()
-    else:
-        st.info(f"📦 **Mode Restock {pilih_item}** — stok akan ditambah dan pengeluaran dicatat.")
+
+    with tab_beans:
+        st.markdown("**Produksi kopi beans (cup)** — mengurangi stok: Beans Kopi, Susu, Gelas.")
+        with st.form("form_produksi_beans", clear_on_submit=True):
+            tanggal       = st.date_input("Tanggal Produksi", value=date.today(), key="tgl_prod_beans")
+            jumlah_cup    = st.number_input("Jumlah Cup Diproduksi", min_value=0, step=1, format="%d")
+
+            st.markdown("**Pemakaian per batch produksi:**")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                beans_pakai2 = st.number_input("Beans Kopi (gr)", min_value=0, step=1, format="%d", key="bc_beans")
+            with c2:
+                susu_pakai2  = st.number_input("Susu (ml)", min_value=0, step=1, format="%d", key="bc_susu")
+            with c3:
+                gelas_pakai2 = st.number_input("Gelas (pcs)", min_value=0, step=1, format="%d", key="bc_gelas")
+
+            keterangan    = st.text_input("Keterangan", placeholder="mis. Produksi sore", key="ket_beans")
+            submitted_beans = st.form_submit_button("Simpan Produksi Beans")
+
+        if submitted_beans:
+            updates2 = [
+                ("Beans Kopi", beans_pakai2),
+                ("Susu",       susu_pakai2),
+                ("Gelas",      gelas_pakai2),
+            ]
+            errors2 = []
+            for item_name, kurang in updates2:
+                if kurang > 0:
+                    stok_skrg = get_stok(item_name)
+                    if stok_skrg < kurang:
+                        errors2.append(f"Stok **{item_name}** tidak cukup (tersisa {stok_skrg}, dibutuhkan {kurang}).")
+            if errors2:
+                for e in errors2:
+                    st.error(e)
+            else:
+                for item_name, kurang in updates2:
+                    if kurang > 0:
+                        deduct_stok(item_name, kurang)
+                detail2 = f"Beans:{beans_pakai2} Susu:{susu_pakai2} Gelas:{gelas_pakai2}"
+                insert_transaction(tanggal, "KELUAR", "PRODUKSI_BEANS", 0,
+                                   f"Produksi {jumlah_cup} cup beans | {detail2} | {keterangan}".strip(" |"))
+                st.success(f"Produksi {jumlah_cup} cup beans berhasil dicatat. Stok bahan telah dikurangi.")
+                st.rerun()
+
+    with tab_restock:
+        st.markdown("**Restock bahan baku** — menambah stok dan mencatat pengeluaran.")
         with st.form("form_restock", clear_on_submit=True):
             tanggal     = st.date_input("Tanggal Restock", value=date.today(), key="tgl_restock")
+            pilih_item  = st.selectbox("Pilih Bahan", ITEMS_STOK, key="pilih_item_restock")
             jumlah_beli = st.number_input("Jumlah Beli", min_value=0, step=1, format="%d")
+            satuan      = st.text_input("Satuan", placeholder="mis. gr, ml, pcs, botol")
             harga_total = st.number_input("Harga Total (Rp)", min_value=0, step=500, format="%d")
             keterangan  = st.text_input("Keterangan", placeholder="mis. Beli di toko X")
-            submitted_restock = st.form_submit_button("💾 Simpan Restock")
+            submitted_restock = st.form_submit_button("Simpan Restock")
 
         if submitted_restock:
             if jumlah_beli <= 0:
@@ -339,12 +435,17 @@ elif page == "Manajemen Stok":
             else:
                 add_stok(pilih_item, jumlah_beli)
                 if harga_total > 0:
-                    insert_transaction(tanggal, "KELUAR", "RESTOCK", harga_total, f"Restock {pilih_item} {jumlah_beli} pcs | {keterangan}".strip(" |"))
-                st.success(f"✅ Restock {pilih_item} +{jumlah_beli} pcs" + (f" | Pengeluaran {fmt_rp(harga_total)} dicatat." if harga_total > 0 else "."))
+                    sat_label = f" {satuan}" if satuan.strip() else ""
+                    insert_transaction(tanggal, "KELUAR", "RESTOCK", harga_total,
+                                       f"Restock {pilih_item} {jumlah_beli}{sat_label} | {keterangan}".strip(" |"))
+                st.success(
+                    f"Restock {pilih_item} +{jumlah_beli} berhasil."
+                    + (f" Pengeluaran {fmt_rp(harga_total)} dicatat." if harga_total > 0 else "")
+                )
                 st.rerun()
 
     st.markdown("---")
-    st.subheader("📋 Stok Saat Ini")
+    st.subheader("Stok Saat Ini")
     st.dataframe(load_inventory(), use_container_width=True, hide_index=True)
 
 
@@ -352,7 +453,7 @@ elif page == "Manajemen Stok":
 #  4. LAPORAN KEUANGAN
 # ═══════════════════════════════════════════════════════════
 elif page == "Laporan Keuangan":
-    st.title("📋 Laporan Keuangan")
+    st.title("Laporan Keuangan")
 
     df = load_transactions()
 
@@ -362,7 +463,7 @@ elif page == "Laporan Keuangan":
 
     df["tanggal"] = pd.to_datetime(df["tanggal"]).dt.date
 
-    st.subheader("🔎 Filter Periode")
+    st.subheader("Filter Periode")
     col_a, col_b = st.columns(2)
     with col_a:
         start_date = st.date_input("Dari Tanggal", value=date.today() - timedelta(days=6), key="lap_start")
@@ -377,16 +478,28 @@ elif page == "Laporan Keuangan":
 
     st.markdown("---")
 
-    total_m = df_filtered[df_filtered["tipe"] == "MASUK"]["nominal"].sum()
-    total_k = df_filtered[df_filtered["tipe"] == "KELUAR"]["nominal"].sum()
+    # Cash masuk = SALDO_AWAL + PENJUALAN_CASH (tidak termasuk QRIS)
+    total_cash_masuk = df_filtered[
+        (df_filtered["tipe"] == "MASUK") &
+        (df_filtered["kategori"].isin(["SALDO_AWAL", "PENJUALAN_CASH"]))
+    ]["nominal"].sum()
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Total Pemasukan", fmt_rp(total_m))
-    c2.metric("Total Pengeluaran", fmt_rp(total_k))
-    c3.metric("Saldo Bersih", fmt_rp(total_m - total_k))
+    total_qris   = df_filtered[
+        (df_filtered["tipe"] == "MASUK") &
+        (df_filtered["kategori"] == "PENJUALAN_QRIS")
+    ]["nominal"].sum()
+
+    total_keluar = df_filtered[df_filtered["tipe"] == "KELUAR"]["nominal"].sum()
+    saldo_kas    = total_cash_masuk - total_keluar
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Pemasukan Cash", fmt_rp(total_cash_masuk))
+    c2.metric("Pemasukan QRIS", fmt_rp(total_qris))
+    c3.metric("Total Pengeluaran", fmt_rp(total_keluar))
+    c4.metric("Saldo Kas Bersih", fmt_rp(saldo_kas))
 
     st.markdown("---")
-    st.subheader(f"📄 Detail Transaksi ({start_date.strftime('%d %b %Y')} – {end_date.strftime('%d %b %Y')})")
+    st.subheader(f"Detail Transaksi ({start_date.strftime('%d %b %Y')} – {end_date.strftime('%d %b %Y')})")
 
     if df_filtered.empty:
         st.info("Tidak ada transaksi pada periode yang dipilih.")
@@ -398,7 +511,7 @@ elif page == "Laporan Keuangan":
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
     st.markdown("---")
-    st.subheader("⬇️ Ekspor Data")
+    st.subheader("Ekspor Data")
 
     export_df = df_filtered.drop(columns=["id"]).copy() if not df_filtered.empty else df.drop(columns=["id"]).head(0)
     export_df["tanggal"] = export_df["tanggal"].astype(str)
@@ -406,7 +519,7 @@ elif page == "Laporan Keuangan":
     export_df.to_csv(csv_buf, index=False, encoding="utf-8-sig")
 
     st.download_button(
-        label="⬇️ Unduh CSV",
+        label="Unduh CSV",
         data=csv_buf.getvalue(),
         file_name=f"laporan_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.csv",
         mime="text/csv",
