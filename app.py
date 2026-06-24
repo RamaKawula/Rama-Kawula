@@ -87,21 +87,56 @@ def load_transactions() -> pd.DataFrame:
         return pd.DataFrame(columns=["id","tanggal","tipe","kategori","nominal","keterangan"])
 
 def load_inventory() -> pd.DataFrame:
+    """Load inventory dengan satuan yang sesuai untuk tiap item."""
     try:
         res = supabase.table("inventory").select("item_name, quantity").execute()
         if res.data:
             df = pd.DataFrame(res.data)
             df.columns = ["Bahan", "Stok"]
-            order = ["Beans Kopi", "Susu", "Gelas", "Botol", "Stiker"]
+
+            # Tambahkan kolom Satuan
+            satuan_map = {
+                "Beans Kopi": "gr",
+                "Susu":       "ml",
+                "Espresso":   "ml",
+                "Gelas":      "pcs",
+                "Botol":      "pcs",
+                "Stiker":     "pcs",
+            }
+            df["Satuan"] = df["Bahan"].map(satuan_map).fillna("pcs")
+
+            order = ["Beans Kopi", "Espresso", "Susu", "Gelas", "Botol", "Stiker"]
             existing = [o for o in order if o in df["Bahan"].values]
             others   = df[~df["Bahan"].isin(order)]["Bahan"].tolist()
             full_order = existing + others
             df["Bahan"] = pd.Categorical(df["Bahan"], categories=full_order, ordered=True)
-            return df.sort_values("Bahan").reset_index(drop=True)
-        return pd.DataFrame(columns=["Bahan", "Stok"])
+            return df.sort_values("Bahan").reset_index(drop=True)[["Bahan", "Stok", "Satuan"]]
+        return pd.DataFrame(columns=["Bahan", "Stok", "Satuan"])
     except Exception as e:
         st.error(f"Gagal memuat inventori: {e}")
-        return pd.DataFrame(columns=["Bahan", "Stok"])
+        return pd.DataFrame(columns=["Bahan", "Stok", "Satuan"])
+
+def load_espresso_log() -> pd.DataFrame:
+    """Load log produksi espresso dari tabel transactions (kategori PRODUKSI_ESPRESSO)."""
+    try:
+        res = (
+            supabase.table("transactions")
+            .select("*")
+            .eq("kategori", "PRODUKSI_ESPRESSO")
+            .order("tanggal", desc=True)
+            .order("id", desc=True)
+            .execute()
+        )
+        if res.data:
+            df = pd.DataFrame(res.data)
+            df["tanggal"] = pd.to_datetime(df["tanggal"]).dt.date.astype(str)
+            return df[["tanggal", "keterangan"]].rename(
+                columns={"tanggal": "Tanggal", "keterangan": "Keterangan"}
+            )
+        return pd.DataFrame(columns=["Tanggal", "Keterangan"])
+    except Exception as e:
+        st.error(f"Gagal memuat log espresso: {e}")
+        return pd.DataFrame(columns=["Tanggal", "Keterangan"])
 
 def insert_transaction(tanggal, tipe, kategori, nominal, keterangan):
     try:
@@ -300,7 +335,16 @@ elif page == "Manajemen Stok":
     st.subheader("Atur Stok Awal (Override Manual)")
     st.caption("Setel jumlah stok secara langsung tanpa mengurangi atau menambah.")
 
-    ITEMS_STOK = ["Beans Kopi", "Susu", "Gelas", "Botol", "Stiker"]
+    # Beans Kopi (gr), Susu (ml), Espresso (ml), Gelas, Botol, Stiker (pcs)
+    ITEMS_STOK = ["Beans Kopi", "Susu", "Espresso", "Gelas", "Botol", "Stiker"]
+    SATUAN_LABEL = {
+        "Beans Kopi": "gr",
+        "Susu":       "ml",
+        "Espresso":   "ml",
+        "Gelas":      "pcs",
+        "Botol":      "pcs",
+        "Stiker":     "pcs",
+    }
 
     with st.form("form_stok_awal", clear_on_submit=False):
         stok_inputs = {}
@@ -308,8 +352,9 @@ elif page == "Manajemen Stok":
         for i, item in enumerate(ITEMS_STOK):
             row = inv_df[inv_df["Bahan"] == item]
             cur = int(row["Stok"].values[0]) if not row.empty else 0
+            label = f"{item} ({SATUAN_LABEL[item]})"
             with cols[i]:
-                stok_inputs[item] = st.number_input(item, min_value=0, value=cur, step=1,
+                stok_inputs[item] = st.number_input(label, min_value=0, value=cur, step=1,
                                                      format="%d", key=f"stok_awal_{item}")
         submitted_awal = st.form_submit_button("Simpan Stok Awal")
 
@@ -324,44 +369,52 @@ elif page == "Manajemen Stok":
     # ── Produksi Harian ──────────────────────────
     st.subheader("Produksi Harian")
 
-    tab_botol, tab_beans, tab_restock = st.tabs(["Produksi Kopi Botol", "Produksi Kopi Beans", "Restock Bahan"])
+    tab_botol, tab_espresso, tab_restock = st.tabs(
+        ["Produksi Kopi Botol", "Produksi Espresso", "Restock Bahan"]
+    )
 
+    # ── Tab: Produksi Kopi Botol ──────────────────
+    # Input: Espresso (ml), Susu (ml), Gelas (pcs), Botol (pcs), Stiker (pcs)
     with tab_botol:
-        st.markdown("**Produksi kopi botol** — mengurangi stok: Beans Kopi, Susu, Botol, Stiker, Gelas.")
+        st.markdown("**Produksi kopi botol** — mengurangi stok: Espresso, Susu, Botol, Stiker, Gelas.")
         with st.form("form_produksi_botol", clear_on_submit=True):
-            tanggal        = st.date_input("Tanggal Produksi", value=date.today(), key="tgl_prod_botol")
-            jumlah_botol   = st.number_input("Jumlah Botol Diproduksi (pcs)", min_value=0, step=1, format="%d")
+            tanggal      = st.date_input("Tanggal Produksi", value=date.today(), key="tgl_prod_botol")
+            jumlah_botol = st.number_input("Jumlah Botol Diproduksi (pcs)", min_value=0, step=1, format="%d")
 
             st.markdown("**Pemakaian per batch produksi:**")
             c1, c2, c3, c4, c5 = st.columns(5)
             with c1:
-                beans_pakai = st.number_input("Beans Kopi (gr)", min_value=0, step=1, format="%d", key="bb_beans")
+                espresso_pakai = st.number_input("Espresso (ml)", min_value=0, step=1, format="%d", key="bb_espresso")
             with c2:
-                susu_pakai  = st.number_input("Susu (ml)", min_value=0, step=1, format="%d", key="bb_susu")
+                susu_pakai     = st.number_input("Susu (ml)",     min_value=0, step=1, format="%d", key="bb_susu")
             with c3:
-                botol_pakai = st.number_input("Botol (pcs)", min_value=0, step=1, format="%d", key="bb_botol")
+                botol_pakai    = st.number_input("Botol (pcs)",   min_value=0, step=1, format="%d", key="bb_botol")
             with c4:
-                stiker_pakai = st.number_input("Stiker (pcs)", min_value=0, step=1, format="%d", key="bb_stiker")
+                stiker_pakai   = st.number_input("Stiker (pcs)",  min_value=0, step=1, format="%d", key="bb_stiker")
             with c5:
-                gelas_pakai = st.number_input("Gelas (pcs)", min_value=0, step=1, format="%d", key="bb_gelas")
+                gelas_pakai    = st.number_input("Gelas (pcs)",   min_value=0, step=1, format="%d", key="bb_gelas")
 
-            keterangan     = st.text_input("Keterangan", placeholder="mis. Produksi pagi", key="ket_botol")
+            keterangan      = st.text_input("Keterangan", placeholder="mis. Produksi pagi", key="ket_botol")
             submitted_botol = st.form_submit_button("Simpan Produksi Botol")
 
         if submitted_botol:
             updates = [
-                ("Beans Kopi", beans_pakai),
-                ("Susu",       susu_pakai),
-                ("Botol",      botol_pakai),
-                ("Stiker",     stiker_pakai),
-                ("Gelas",      gelas_pakai),
+                ("Espresso", espresso_pakai),
+                ("Susu",     susu_pakai),
+                ("Botol",    botol_pakai),
+                ("Stiker",   stiker_pakai),
+                ("Gelas",    gelas_pakai),
             ]
             errors = []
             for item_name, kurang in updates:
                 if kurang > 0:
                     stok_skrg = get_stok(item_name)
+                    sat = SATUAN_LABEL.get(item_name, "pcs")
                     if stok_skrg < kurang:
-                        errors.append(f"Stok **{item_name}** tidak cukup (tersisa {stok_skrg}, dibutuhkan {kurang}).")
+                        errors.append(
+                            f"Stok **{item_name}** tidak cukup "
+                            f"(tersisa {stok_skrg} {sat}, dibutuhkan {kurang} {sat})."
+                        )
             if errors:
                 for e in errors:
                     st.error(e)
@@ -369,62 +422,86 @@ elif page == "Manajemen Stok":
                 for item_name, kurang in updates:
                     if kurang > 0:
                         deduct_stok(item_name, kurang)
-                detail = f"Botol:{botol_pakai} Stiker:{stiker_pakai} Susu:{susu_pakai} Beans:{beans_pakai} Gelas:{gelas_pakai}"
-                insert_transaction(tanggal, "KELUAR", "PRODUKSI_BOTOL", 0,
-                                   f"Produksi {jumlah_botol} botol | {detail} | {keterangan}".strip(" |"))
+                detail = (
+                    f"Espresso:{espresso_pakai}ml Susu:{susu_pakai}ml "
+                    f"Botol:{botol_pakai} Stiker:{stiker_pakai} Gelas:{gelas_pakai}"
+                )
+                insert_transaction(
+                    tanggal, "KELUAR", "PRODUKSI_BOTOL", 0,
+                    f"Produksi {jumlah_botol} botol | {detail} | {keterangan}".strip(" |")
+                )
                 st.success(f"Produksi {jumlah_botol} botol berhasil dicatat. Stok bahan telah dikurangi.")
                 st.rerun()
 
-    with tab_beans:
-        st.markdown("**Produksi kopi beans (cup)** — mengurangi stok: Beans Kopi, Susu, Gelas.")
-        with st.form("form_produksi_beans", clear_on_submit=True):
-            tanggal       = st.date_input("Tanggal Produksi", value=date.today(), key="tgl_prod_beans")
-            jumlah_cup    = st.number_input("Jumlah Cup Diproduksi", min_value=0, step=1, format="%d")
+    # ── Tab: Produksi Espresso ────────────────────
+    # Input: Beans Kopi (gr) yang dipakai → Hasil Espresso (ml) yang ditambahkan ke stok
+    with tab_espresso:
+        st.markdown("**Produksi espresso** — mengurangi stok Beans Kopi (gr), menambah stok Espresso (ml).")
+        with st.form("form_produksi_espresso", clear_on_submit=True):
+            tanggal          = st.date_input("Tanggal Produksi", value=date.today(), key="tgl_prod_espresso")
 
-            st.markdown("**Pemakaian per batch produksi:**")
-            c1, c2, c3 = st.columns(3)
+            st.markdown("**Detail produksi:**")
+            c1, c2 = st.columns(2)
             with c1:
-                beans_pakai2 = st.number_input("Beans Kopi (gr)", min_value=0, step=1, format="%d", key="bc_beans")
+                beans_dipakai    = st.number_input(
+                    "Beans Kopi dipakai (gr)", min_value=0, step=1, format="%d", key="esp_beans"
+                )
             with c2:
-                susu_pakai2  = st.number_input("Susu (ml)", min_value=0, step=1, format="%d", key="bc_susu")
-            with c3:
-                gelas_pakai2 = st.number_input("Gelas (pcs)", min_value=0, step=1, format="%d", key="bc_gelas")
+                espresso_hasil   = st.number_input(
+                    "Hasil Espresso (ml)", min_value=0, step=1, format="%d", key="esp_hasil"
+                )
 
-            keterangan    = st.text_input("Keterangan", placeholder="mis. Produksi sore", key="ket_beans")
-            submitted_beans = st.form_submit_button("Simpan Produksi Beans")
+            keterangan        = st.text_input("Keterangan", placeholder="mis. Produksi espresso pagi", key="ket_espresso")
+            submitted_espresso = st.form_submit_button("Simpan Produksi Espresso")
 
-        if submitted_beans:
-            updates2 = [
-                ("Beans Kopi", beans_pakai2),
-                ("Susu",       susu_pakai2),
-                ("Gelas",      gelas_pakai2),
-            ]
-            errors2 = []
-            for item_name, kurang in updates2:
-                if kurang > 0:
-                    stok_skrg = get_stok(item_name)
-                    if stok_skrg < kurang:
-                        errors2.append(f"Stok **{item_name}** tidak cukup (tersisa {stok_skrg}, dibutuhkan {kurang}).")
-            if errors2:
-                for e in errors2:
-                    st.error(e)
+        if submitted_espresso:
+            if beans_dipakai <= 0 and espresso_hasil <= 0:
+                st.error("Isi jumlah Beans Kopi dan/atau Hasil Espresso.")
             else:
-                for item_name, kurang in updates2:
-                    if kurang > 0:
-                        deduct_stok(item_name, kurang)
-                detail2 = f"Beans:{beans_pakai2} Susu:{susu_pakai2} Gelas:{gelas_pakai2}"
-                insert_transaction(tanggal, "KELUAR", "PRODUKSI_BEANS", 0,
-                                   f"Produksi {jumlah_cup} cup beans | {detail2} | {keterangan}".strip(" |"))
-                st.success(f"Produksi {jumlah_cup} cup beans berhasil dicatat. Stok bahan telah dikurangi.")
-                st.rerun()
+                # Cek stok beans
+                stok_beans = get_stok("Beans Kopi")
+                if beans_dipakai > 0 and stok_beans < beans_dipakai:
+                    st.error(
+                        f"Stok **Beans Kopi** tidak cukup "
+                        f"(tersisa {stok_beans} gr, dibutuhkan {beans_dipakai} gr)."
+                    )
+                else:
+                    if beans_dipakai > 0:
+                        deduct_stok("Beans Kopi", beans_dipakai)
+                    if espresso_hasil > 0:
+                        add_stok("Espresso", espresso_hasil)
+                    detail_esp = f"Beans:{beans_dipakai}gr → Espresso:{espresso_hasil}ml"
+                    insert_transaction(
+                        tanggal, "KELUAR", "PRODUKSI_ESPRESSO", 0,
+                        f"{detail_esp} | {keterangan}".strip(" |")
+                    )
+                    st.success(
+                        f"Produksi espresso berhasil dicatat. "
+                        f"Beans Kopi -{beans_dipakai} gr, Espresso +{espresso_hasil} ml."
+                    )
+                    st.rerun()
 
+        # Tabel log produksi espresso
+        st.markdown("---")
+        st.markdown("**Riwayat Produksi Espresso**")
+        esp_log = load_espresso_log()
+        if esp_log.empty:
+            st.info("Belum ada riwayat produksi espresso.")
+        else:
+            st.dataframe(esp_log, use_container_width=True, hide_index=True)
+
+    # ── Tab: Restock Bahan ────────────────────────
     with tab_restock:
         st.markdown("**Restock bahan baku** — menambah stok dan mencatat pengeluaran.")
         with st.form("form_restock", clear_on_submit=True):
             tanggal     = st.date_input("Tanggal Restock", value=date.today(), key="tgl_restock")
             pilih_item  = st.selectbox("Pilih Bahan", ITEMS_STOK, key="pilih_item_restock")
             jumlah_beli = st.number_input("Jumlah Beli", min_value=0, step=1, format="%d")
-            satuan      = st.text_input("Satuan", placeholder="mis. gr, ml, pcs, botol")
+            satuan      = st.text_input(
+                "Satuan",
+                placeholder="mis. gr, ml, pcs",
+                value=SATUAN_LABEL.get(pilih_item, ""),
+            )
             harga_total = st.number_input("Harga Total (Rp)", min_value=0, step=500, format="%d")
             keterangan  = st.text_input("Keterangan", placeholder="mis. Beli di toko X")
             submitted_restock = st.form_submit_button("Simpan Restock")
