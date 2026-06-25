@@ -22,6 +22,7 @@ st.markdown("""
 :root {
     --accent:      #7B5E3A;
     --border-soft: rgba(127, 94, 58, 0.25);
+    --danger:      #B84A2F;
 }
 [data-testid="stMetric"] {
     border-left: 4px solid var(--accent);
@@ -37,6 +38,13 @@ st.markdown("""
     border: 1px solid var(--border-soft);
     border-radius: 8px;
     overflow: hidden;
+}
+.delete-warning {
+    background-color: #fff3f0;
+    border-left: 4px solid #B84A2F;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin: 8px 0;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -56,6 +64,21 @@ except Exception as e:
     st.error(f"Gagal koneksi ke Supabase: {e}")
     st.info("Pastikan SUPABASE_URL dan SUPABASE_KEY sudah benar di Streamlit Secrets.")
     st.stop()
+
+# ─────────────────────────────────────────────
+#  CONSTANTS
+# ─────────────────────────────────────────────
+ITEMS_STOK = ["Beans Kopi", "Susu", "Espresso", "Gula", "Gelas", "Botol", "Stiker"]
+
+SATUAN_LABEL = {
+    "Beans Kopi": "gr",
+    "Susu":       "ml",
+    "Espresso":   "ml",
+    "Gula":       "kg",
+    "Gelas":      "pcs",
+    "Botol":      "pcs",
+    "Stiker":     "pcs",
+}
 
 # ─────────────────────────────────────────────
 #  HELPERS
@@ -93,21 +116,11 @@ def load_inventory() -> pd.DataFrame:
         if res.data:
             df = pd.DataFrame(res.data)
             df.columns = ["Bahan", "Stok"]
+            df["Satuan"] = df["Bahan"].map(SATUAN_LABEL).fillna("pcs")
 
-            # Tambahkan kolom Satuan
-            satuan_map = {
-                "Beans Kopi": "gr",
-                "Susu":       "ml",
-                "Espresso":   "ml",
-                "Gelas":      "pcs",
-                "Botol":      "pcs",
-                "Stiker":     "pcs",
-            }
-            df["Satuan"] = df["Bahan"].map(satuan_map).fillna("pcs")
-
-            order = ["Beans Kopi", "Espresso", "Susu", "Gelas", "Botol", "Stiker"]
-            existing = [o for o in order if o in df["Bahan"].values]
-            others   = df[~df["Bahan"].isin(order)]["Bahan"].tolist()
+            order = ["Beans Kopi", "Espresso", "Susu", "Gula", "Gelas", "Botol", "Stiker"]
+            existing   = [o for o in order if o in df["Bahan"].values]
+            others     = df[~df["Bahan"].isin(order)]["Bahan"].tolist()
             full_order = existing + others
             df["Bahan"] = pd.Categorical(df["Bahan"], categories=full_order, ordered=True)
             return df.sort_values("Bahan").reset_index(drop=True)[["Bahan", "Stok", "Satuan"]]
@@ -117,7 +130,6 @@ def load_inventory() -> pd.DataFrame:
         return pd.DataFrame(columns=["Bahan", "Stok", "Satuan"])
 
 def load_espresso_log() -> pd.DataFrame:
-    """Load log produksi espresso dari tabel transactions (kategori PRODUKSI_ESPRESSO)."""
     try:
         res = (
             supabase.table("transactions")
@@ -150,6 +162,28 @@ def insert_transaction(tanggal, tipe, kategori, nominal, keterangan):
     except Exception as e:
         st.error(f"Gagal menyimpan transaksi: {e}")
 
+def update_transaction(trx_id: int, tanggal, tipe, kategori, nominal, keterangan):
+    try:
+        supabase.table("transactions").update({
+            "tanggal":    str(tanggal),
+            "tipe":       tipe,
+            "kategori":   kategori,
+            "nominal":    float(nominal),
+            "keterangan": keterangan,
+        }).eq("id", trx_id).execute()
+        return True
+    except Exception as e:
+        st.error(f"Gagal mengupdate transaksi: {e}")
+        return False
+
+def delete_transaction(trx_id: int):
+    try:
+        supabase.table("transactions").delete().eq("id", trx_id).execute()
+        return True
+    except Exception as e:
+        st.error(f"Gagal menghapus transaksi: {e}")
+        return False
+
 def get_stok(item_name: str) -> int:
     try:
         res = (
@@ -165,10 +199,17 @@ def get_stok(item_name: str) -> int:
 
 def set_stok(item_name: str, quantity: int):
     try:
-        supabase.table("inventory") \
+        # Coba update dulu; kalau tidak ada baris, insert
+        res = supabase.table("inventory") \
             .update({"quantity": quantity}) \
             .eq("item_name", item_name) \
             .execute()
+        # Jika tidak ada baris yang terupdate, buat baru
+        if res.data is not None and len(res.data) == 0:
+            supabase.table("inventory").insert({
+                "item_name": item_name,
+                "quantity": quantity,
+            }).execute()
     except Exception as e:
         st.error(f"Gagal update stok {item_name}: {e}")
 
@@ -177,6 +218,14 @@ def add_stok(item_name: str, delta: int):
 
 def deduct_stok(item_name: str, delta: int):
     set_stok(item_name, get_stok(item_name) - delta)
+
+def delete_stok_item(item_name: str):
+    try:
+        supabase.table("inventory").delete().eq("item_name", item_name).execute()
+        return True
+    except Exception as e:
+        st.error(f"Gagal menghapus item stok: {e}")
+        return False
 
 # ─────────────────────────────────────────────
 #  SIDEBAR
@@ -187,7 +236,7 @@ with st.sidebar:
     st.markdown("---")
     menu = st.radio(
         "Navigasi",
-        ["Dashboard", "Input Transaksi", "Manajemen Stok", "Laporan Keuangan"],
+        ["Dashboard", "Input Transaksi", "Manajemen Stok", "Laporan Keuangan", "Edit & Hapus Data"],
         label_visibility="collapsed",
     )
     st.markdown("---")
@@ -204,7 +253,6 @@ if page == "Dashboard":
 
     df = load_transactions()
 
-    # Cash = SALDO_AWAL + PENJUALAN_CASH (QRIS tidak masuk total pemasukan kas)
     total_masuk_cash = df[
         (df["tipe"] == "MASUK") &
         (df["kategori"].isin(["SALDO_AWAL", "PENJUALAN_CASH"]))
@@ -307,7 +355,7 @@ elif page == "Input Transaksi":
         st.markdown("**Catat pembelian bahan baku.**")
         with st.form("form_bahan_baku", clear_on_submit=True):
             tanggal    = st.date_input("Tanggal", value=date.today(), key="tgl_bahan")
-            kategori   = st.selectbox("Kategori Bahan", ["Botol", "Gelas", "Stiker", "Susu", "Beans Kopi", "Lainnya"])
+            kategori   = st.selectbox("Kategori Bahan", ["Botol", "Gelas", "Gula", "Stiker", "Susu", "Beans Kopi", "Lainnya"])
             nama_lain  = st.text_input("Nama Bahan (jika Lainnya)", placeholder="mis. Tisu, Sendok")
             jumlah     = st.number_input("Jumlah", min_value=0, step=1, format="%d")
             nominal    = st.number_input("Total Harga (Rp)", min_value=0, step=500, format="%d")
@@ -335,27 +383,30 @@ elif page == "Manajemen Stok":
     st.subheader("Atur Stok Awal (Override Manual)")
     st.caption("Setel jumlah stok secara langsung tanpa mengurangi atau menambah.")
 
-    # Beans Kopi (gr), Susu (ml), Espresso (ml), Gelas, Botol, Stiker (pcs)
-    ITEMS_STOK = ["Beans Kopi", "Susu", "Espresso", "Gelas", "Botol", "Stiker"]
-    SATUAN_LABEL = {
-        "Beans Kopi": "gr",
-        "Susu":       "ml",
-        "Espresso":   "ml",
-        "Gelas":      "pcs",
-        "Botol":      "pcs",
-        "Stiker":     "pcs",
-    }
-
     with st.form("form_stok_awal", clear_on_submit=False):
         stok_inputs = {}
-        cols = st.columns(len(ITEMS_STOK))
-        for i, item in enumerate(ITEMS_STOK):
+        # Bagi ke 2 baris agar tidak terlalu sempit
+        row1_items = ["Beans Kopi", "Susu", "Espresso", "Gula"]
+        row2_items = ["Gelas", "Botol", "Stiker"]
+
+        cols1 = st.columns(len(row1_items))
+        for i, item in enumerate(row1_items):
             row = inv_df[inv_df["Bahan"] == item]
             cur = int(row["Stok"].values[0]) if not row.empty else 0
             label = f"{item} ({SATUAN_LABEL[item]})"
-            with cols[i]:
+            with cols1[i]:
                 stok_inputs[item] = st.number_input(label, min_value=0, value=cur, step=1,
                                                      format="%d", key=f"stok_awal_{item}")
+
+        cols2 = st.columns(len(row2_items))
+        for i, item in enumerate(row2_items):
+            row = inv_df[inv_df["Bahan"] == item]
+            cur = int(row["Stok"].values[0]) if not row.empty else 0
+            label = f"{item} ({SATUAN_LABEL[item]})"
+            with cols2[i]:
+                stok_inputs[item] = st.number_input(label, min_value=0, value=cur, step=1,
+                                                     format="%d", key=f"stok_awal_{item}")
+
         submitted_awal = st.form_submit_button("Simpan Stok Awal")
 
     if submitted_awal:
@@ -374,56 +425,62 @@ elif page == "Manajemen Stok":
     )
 
     # ── Tab: Produksi Kopi Botol ──────────────────
-    # Input: Espresso (ml), Susu (ml), Gelas (pcs), Botol (pcs), Stiker (pcs)
     with tab_botol:
-        st.markdown("**Produksi kopi botol** — mengurangi stok: Espresso, Susu, Botol, Stiker, Gelas.")
+        st.markdown("**Produksi kopi botol** — mengurangi stok: Espresso, Susu, Gula, Botol, Stiker, Gelas.")
         with st.form("form_produksi_botol", clear_on_submit=True):
             tanggal      = st.date_input("Tanggal Produksi", value=date.today(), key="tgl_prod_botol")
             jumlah_botol = st.number_input("Jumlah Botol Diproduksi (pcs)", min_value=0, step=1, format="%d")
 
             st.markdown("**Pemakaian per batch produksi:**")
-            c1, c2, c3, c4, c5 = st.columns(5)
+            c1, c2, c3, c4, c5, c6 = st.columns(6)
             with c1:
                 espresso_pakai = st.number_input("Espresso (ml)", min_value=0, step=1, format="%d", key="bb_espresso")
             with c2:
                 susu_pakai     = st.number_input("Susu (ml)",     min_value=0, step=1, format="%d", key="bb_susu")
             with c3:
-                botol_pakai    = st.number_input("Botol (pcs)",   min_value=0, step=1, format="%d", key="bb_botol")
+                gula_pakai     = st.number_input("Gula (ml)",     min_value=0, step=1, format="%d", key="bb_gula")
             with c4:
-                stiker_pakai   = st.number_input("Stiker (pcs)",  min_value=0, step=1, format="%d", key="bb_stiker")
+                botol_pakai    = st.number_input("Botol (pcs)",   min_value=0, step=1, format="%d", key="bb_botol")
             with c5:
+                stiker_pakai   = st.number_input("Stiker (pcs)",  min_value=0, step=1, format="%d", key="bb_stiker")
+            with c6:
                 gelas_pakai    = st.number_input("Gelas (pcs)",   min_value=0, step=1, format="%d", key="bb_gelas")
 
             keterangan      = st.text_input("Keterangan", placeholder="mis. Produksi pagi", key="ket_botol")
             submitted_botol = st.form_submit_button("Simpan Produksi Botol")
 
         if submitted_botol:
+            # Gula dicatat dalam ml saat produksi, tapi stok disimpan dalam kg
+            # Konversi: 1 kg = 1000 ml → konversi ke kg saat deduct
+            # Untuk kemudahan: stok Gula disimpan sebagai integer (gram/ml bergantung preferensi)
+            # Di sini kita anggap stok Gula disimpan dalam satuan ml (1 kg = 1000 ml)
             updates = [
-                ("Espresso", espresso_pakai),
-                ("Susu",     susu_pakai),
-                ("Botol",    botol_pakai),
-                ("Stiker",   stiker_pakai),
-                ("Gelas",    gelas_pakai),
+                ("Espresso", espresso_pakai, "ml"),
+                ("Susu",     susu_pakai,     "ml"),
+                ("Gula",     gula_pakai,     "ml"),
+                ("Botol",    botol_pakai,    "pcs"),
+                ("Stiker",   stiker_pakai,   "pcs"),
+                ("Gelas",    gelas_pakai,    "pcs"),
             ]
             errors = []
-            for item_name, kurang in updates:
+            for item_name, kurang, sat in updates:
                 if kurang > 0:
                     stok_skrg = get_stok(item_name)
-                    sat = SATUAN_LABEL.get(item_name, "pcs")
+                    stok_label = SATUAN_LABEL.get(item_name, "pcs")
                     if stok_skrg < kurang:
                         errors.append(
                             f"Stok **{item_name}** tidak cukup "
-                            f"(tersisa {stok_skrg} {sat}, dibutuhkan {kurang} {sat})."
+                            f"(tersisa {stok_skrg} {stok_label}, dibutuhkan {kurang} {sat})."
                         )
             if errors:
                 for e in errors:
                     st.error(e)
             else:
-                for item_name, kurang in updates:
+                for item_name, kurang, _ in updates:
                     if kurang > 0:
                         deduct_stok(item_name, kurang)
                 detail = (
-                    f"Espresso:{espresso_pakai}ml Susu:{susu_pakai}ml "
+                    f"Espresso:{espresso_pakai}ml Susu:{susu_pakai}ml Gula:{gula_pakai}ml "
                     f"Botol:{botol_pakai} Stiker:{stiker_pakai} Gelas:{gelas_pakai}"
                 )
                 insert_transaction(
@@ -434,7 +491,6 @@ elif page == "Manajemen Stok":
                 st.rerun()
 
     # ── Tab: Produksi Espresso ────────────────────
-    # Input: Beans Kopi (gr) yang dipakai → Hasil Espresso (ml) yang ditambahkan ke stok
     with tab_espresso:
         st.markdown("**Produksi espresso** — mengurangi stok Beans Kopi (gr), menambah stok Espresso (ml).")
         with st.form("form_produksi_espresso", clear_on_submit=True):
@@ -458,7 +514,6 @@ elif page == "Manajemen Stok":
             if beans_dipakai <= 0 and espresso_hasil <= 0:
                 st.error("Isi jumlah Beans Kopi dan/atau Hasil Espresso.")
             else:
-                # Cek stok beans
                 stok_beans = get_stok("Beans Kopi")
                 if beans_dipakai > 0 and stok_beans < beans_dipakai:
                     st.error(
@@ -481,7 +536,6 @@ elif page == "Manajemen Stok":
                     )
                     st.rerun()
 
-        # Tabel log produksi espresso
         st.markdown("---")
         st.markdown("**Riwayat Produksi Espresso**")
         esp_log = load_espresso_log()
@@ -499,7 +553,7 @@ elif page == "Manajemen Stok":
             jumlah_beli = st.number_input("Jumlah Beli", min_value=0, step=1, format="%d")
             satuan      = st.text_input(
                 "Satuan",
-                placeholder="mis. gr, ml, pcs",
+                placeholder="mis. gr, ml, pcs, kg",
                 value=SATUAN_LABEL.get(pilih_item, ""),
             )
             harga_total = st.number_input("Harga Total (Rp)", min_value=0, step=500, format="%d")
@@ -555,7 +609,6 @@ elif page == "Laporan Keuangan":
 
     st.markdown("---")
 
-    # Cash masuk = SALDO_AWAL + PENJUALAN_CASH (tidak termasuk QRIS)
     total_cash_masuk = df_filtered[
         (df_filtered["tipe"] == "MASUK") &
         (df_filtered["kategori"].isin(["SALDO_AWAL", "PENJUALAN_CASH"]))
@@ -601,3 +654,219 @@ elif page == "Laporan Keuangan":
         file_name=f"laporan_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.csv",
         mime="text/csv",
     )
+
+
+# ═══════════════════════════════════════════════════════════
+#  5. EDIT & HAPUS DATA
+# ═══════════════════════════════════════════════════════════
+elif page == "Edit & Hapus Data":
+    st.title("Edit & Hapus Data")
+    st.caption("Gunakan halaman ini untuk mengedit atau menghapus transaksi dan data stok.")
+
+    tab_edit_trx, tab_hapus_trx, tab_edit_stok = st.tabs(
+        ["Edit Transaksi", "Hapus Transaksi", "Edit & Hapus Stok"]
+    )
+
+    # ══════════════════════════════════════════
+    #  TAB: EDIT TRANSAKSI
+    # ══════════════════════════════════════════
+    with tab_edit_trx:
+        st.subheader("Edit Transaksi")
+        st.caption("Cari transaksi berdasarkan ID atau filter, lalu ubah datanya.")
+
+        df_all = load_transactions()
+        if df_all.empty:
+            st.info("Belum ada data transaksi.")
+        else:
+            df_all["tanggal_str"] = df_all["tanggal"].dt.strftime("%d/%m/%Y")
+
+            # Filter pencarian
+            col_f1, col_f2 = st.columns([1, 2])
+            with col_f1:
+                filter_tipe = st.selectbox("Filter Tipe", ["Semua", "MASUK", "KELUAR"], key="edit_filter_tipe")
+            with col_f2:
+                filter_kat  = st.text_input("Filter Kategori (opsional)", placeholder="mis. PENJUALAN_CASH", key="edit_filter_kat")
+
+            df_show = df_all.copy()
+            if filter_tipe != "Semua":
+                df_show = df_show[df_show["tipe"] == filter_tipe]
+            if filter_kat.strip():
+                df_show = df_show[df_show["kategori"].str.contains(filter_kat.strip(), case=False, na=False)]
+
+            if df_show.empty:
+                st.info("Tidak ada transaksi yang sesuai filter.")
+            else:
+                # Tampilkan tabel ringkas
+                display_edit = df_show[["id", "tanggal_str", "tipe", "kategori", "nominal", "keterangan"]].copy()
+                display_edit["nominal"] = display_edit["nominal"].apply(fmt_rp)
+                display_edit.columns = ["ID", "Tanggal", "Tipe", "Kategori", "Nominal", "Keterangan"]
+                st.dataframe(display_edit, use_container_width=True, hide_index=True)
+
+                st.markdown("---")
+                st.markdown("**Pilih ID transaksi yang ingin diedit:**")
+
+                trx_id_edit = st.number_input(
+                    "ID Transaksi", min_value=1, step=1, format="%d", key="edit_trx_id"
+                )
+
+                trx_row = df_all[df_all["id"] == trx_id_edit]
+                if not trx_row.empty:
+                    trx = trx_row.iloc[0]
+                    st.info(f"Mengedit transaksi ID **{trx_id_edit}** — {trx['kategori']} | {fmt_rp(trx['nominal'])} | {trx['keterangan']}")
+
+                    with st.form("form_edit_trx", clear_on_submit=False):
+                        e_tanggal    = st.date_input("Tanggal", value=trx["tanggal"].date(), key="edit_tgl")
+                        e_tipe       = st.selectbox("Tipe", ["MASUK", "KELUAR"],
+                                                    index=0 if trx["tipe"] == "MASUK" else 1, key="edit_tipe")
+                        KATEGORI_OPT = [
+                            "SALDO_AWAL", "PENJUALAN_CASH", "PENJUALAN_QRIS",
+                            "PEMBELIAN_BAHAN", "PRODUKSI_BOTOL", "PRODUKSI_ESPRESSO", "RESTOCK", "LAINNYA"
+                        ]
+                        cur_kat_idx  = KATEGORI_OPT.index(trx["kategori"]) if trx["kategori"] in KATEGORI_OPT else 7
+                        e_kategori   = st.selectbox("Kategori", KATEGORI_OPT, index=cur_kat_idx, key="edit_kat")
+                        e_nominal    = st.number_input("Nominal (Rp)", min_value=0, value=int(trx["nominal"]),
+                                                       step=500, format="%d", key="edit_nominal")
+                        e_keterangan = st.text_input("Keterangan", value=trx["keterangan"] or "", key="edit_ket")
+                        submitted_edit = st.form_submit_button("Simpan Perubahan")
+
+                    if submitted_edit:
+                        ok = update_transaction(trx_id_edit, e_tanggal, e_tipe, e_kategori, e_nominal, e_keterangan)
+                        if ok:
+                            st.success(f"Transaksi ID {trx_id_edit} berhasil diperbarui.")
+                            st.rerun()
+                else:
+                    if trx_id_edit > 0:
+                        st.warning(f"ID transaksi {trx_id_edit} tidak ditemukan dalam filter aktif.")
+
+    # ══════════════════════════════════════════
+    #  TAB: HAPUS TRANSAKSI
+    # ══════════════════════════════════════════
+    with tab_hapus_trx:
+        st.subheader("Hapus Transaksi")
+        st.markdown(
+            '<div class="delete-warning">⚠️ <strong>Perhatian:</strong> Penghapusan transaksi bersifat permanen '
+            'dan tidak dapat dibatalkan. Pastikan data yang dihapus sudah benar.</div>',
+            unsafe_allow_html=True,
+        )
+
+        df_del = load_transactions()
+        if df_del.empty:
+            st.info("Belum ada data transaksi.")
+        else:
+            df_del["tanggal_str"] = df_del["tanggal"].dt.strftime("%d/%m/%Y")
+
+            col_d1, col_d2 = st.columns([1, 2])
+            with col_d1:
+                del_filter_tipe = st.selectbox("Filter Tipe", ["Semua", "MASUK", "KELUAR"], key="del_filter_tipe")
+            with col_d2:
+                del_filter_kat  = st.text_input("Filter Kategori (opsional)", key="del_filter_kat")
+
+            df_del_show = df_del.copy()
+            if del_filter_tipe != "Semua":
+                df_del_show = df_del_show[df_del_show["tipe"] == del_filter_tipe]
+            if del_filter_kat.strip():
+                df_del_show = df_del_show[df_del_show["kategori"].str.contains(del_filter_kat.strip(), case=False, na=False)]
+
+            if df_del_show.empty:
+                st.info("Tidak ada transaksi yang sesuai filter.")
+            else:
+                display_del = df_del_show[["id", "tanggal_str", "tipe", "kategori", "nominal", "keterangan"]].copy()
+                display_del["nominal"] = display_del["nominal"].apply(fmt_rp)
+                display_del.columns = ["ID", "Tanggal", "Tipe", "Kategori", "Nominal", "Keterangan"]
+                st.dataframe(display_del, use_container_width=True, hide_index=True)
+
+                st.markdown("---")
+                st.markdown("**Pilih ID transaksi yang ingin dihapus:**")
+
+                trx_id_del = st.number_input(
+                    "ID Transaksi", min_value=1, step=1, format="%d", key="del_trx_id"
+                )
+
+                trx_del_row = df_del[df_del["id"] == trx_id_del]
+                if not trx_del_row.empty:
+                    trx_d = trx_del_row.iloc[0]
+                    st.warning(
+                        f"Anda akan menghapus: **ID {trx_id_del}** | "
+                        f"{trx_d['tanggal_str']} | {trx_d['kategori']} | "
+                        f"{fmt_rp(trx_d['nominal'])} | {trx_d['keterangan']}"
+                    )
+                    konfirmasi = st.checkbox(
+                        f"Saya yakin ingin menghapus transaksi ID {trx_id_del}", key="del_konfirmasi"
+                    )
+                    if konfirmasi:
+                        if st.button("🗑️ Hapus Sekarang", type="primary", key="btn_hapus_trx"):
+                            ok = delete_transaction(trx_id_del)
+                            if ok:
+                                st.success(f"Transaksi ID {trx_id_del} berhasil dihapus.")
+                                st.rerun()
+                else:
+                    if trx_id_del > 0:
+                        st.warning(f"ID transaksi {trx_id_del} tidak ditemukan dalam filter aktif.")
+
+    # ══════════════════════════════════════════
+    #  TAB: EDIT & HAPUS STOK
+    # ══════════════════════════════════════════
+    with tab_edit_stok:
+        st.subheader("Edit & Hapus Stok")
+
+        inv_edit = load_inventory()
+        if inv_edit.empty:
+            st.info("Tidak ada data stok.")
+        else:
+            st.markdown("**Stok saat ini:**")
+            st.dataframe(inv_edit, use_container_width=True, hide_index=True)
+
+        st.markdown("---")
+
+        # Edit stok individual
+        st.markdown("### Edit Jumlah Stok")
+        st.caption("Ubah jumlah stok salah satu bahan secara langsung.")
+
+        all_items_in_db = inv_edit["Bahan"].tolist() if not inv_edit.empty else ITEMS_STOK
+
+        with st.form("form_edit_stok", clear_on_submit=False):
+            pilih_edit_item = st.selectbox("Pilih Bahan", all_items_in_db, key="edit_stok_item")
+            row_item = inv_edit[inv_edit["Bahan"] == pilih_edit_item] if not inv_edit.empty else pd.DataFrame()
+            cur_stok = int(row_item["Stok"].values[0]) if not row_item.empty else 0
+            sat_item = SATUAN_LABEL.get(str(pilih_edit_item), "pcs")
+
+            st.caption(f"Stok saat ini: **{cur_stok} {sat_item}**")
+            new_stok = st.number_input(
+                f"Jumlah Baru ({sat_item})", min_value=0, value=cur_stok, step=1, format="%d", key="edit_stok_val"
+            )
+            submitted_edit_stok = st.form_submit_button("Simpan Perubahan Stok")
+
+        if submitted_edit_stok:
+            set_stok(str(pilih_edit_item), new_stok)
+            st.success(f"Stok **{pilih_edit_item}** berhasil diubah menjadi {new_stok} {sat_item}.")
+            st.rerun()
+
+        st.markdown("---")
+
+        # Hapus stok item
+        st.markdown("### Hapus Item Stok")
+        st.markdown(
+            '<div class="delete-warning">⚠️ <strong>Perhatian:</strong> Menghapus item stok akan menghilangkan '
+            'data bahan baku tersebut dari database. Gunakan hanya jika bahan sudah tidak digunakan.</div>',
+            unsafe_allow_html=True,
+        )
+
+        if not inv_edit.empty:
+            with st.form("form_hapus_stok", clear_on_submit=True):
+                pilih_hapus_item = st.selectbox("Pilih Bahan yang Ingin Dihapus",
+                                                all_items_in_db, key="hapus_stok_item")
+                konfirmasi_hapus_stok = st.checkbox(
+                    f"Saya yakin ingin menghapus item stok ini", key="hapus_stok_konfirmasi"
+                )
+                submitted_hapus_stok = st.form_submit_button("🗑️ Hapus Item Stok", type="primary")
+
+            if submitted_hapus_stok:
+                if not konfirmasi_hapus_stok:
+                    st.error("Centang konfirmasi terlebih dahulu untuk menghapus.")
+                else:
+                    ok = delete_stok_item(str(pilih_hapus_item))
+                    if ok:
+                        st.success(f"Item stok **{pilih_hapus_item}** berhasil dihapus.")
+                        st.rerun()
+        else:
+            st.info("Tidak ada item stok untuk dihapus.")
